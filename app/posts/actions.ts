@@ -1,133 +1,172 @@
 "use server";
 
-import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-// 1. 데이터 검증 스키마
-const PostSchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, "제목을 입력해 주세요")
-    .max(100, "제목은 100자 이하로 입력해주세요"),
-  content: z
-    .string()
-    .trim()
-    .min(1, "내용을 입력해 주세요")
-    .max(5000, "내용은 5000자 이하로 입력해주세요"),
-  summary: z.string().trim().max(200, "요약은 200자 이하로 입력해주세요").optional(),
-  category: z.string().trim().optional(),
-});
-
-// 2. form에서 전달받은 데이터 정리
-function readForm(formData: FormData) {
-  return {
-    title: String(formData.get("title") ?? ""),
-    content: String(formData.get("content") ?? ""),
-    summary: String(formData.get("summary") ?? ""),
-    category: String(formData.get("category") ?? ""),
-  };
-}
-
 export type PostFormState = {
-  errors?: {
+  errors: {
     title?: string[];
     content?: string[];
+    image?: string[];
   };
-  message?: string | null;
+  message: string | null;
   values?: {
     title: string;
     content: string;
-    summary: string;
-    category: string;
   };
 };
 
-// 3. 게시글 작성하기 (Create)
-export async function createPost(
-  _prevState: PostFormState,
-  formData: FormData,
-): Promise<PostFormState> {
-  const raw = readForm(formData);
-  const parsed = PostSchema.safeParse(raw);
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png"];
 
-  if (!parsed.success) {
-    return {
-      errors: parsed.error.flatten().fieldErrors,
-      message: "입력값을 다시 확인해주세요",
-      values: raw,
-    };
+async function uploadPostImage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  image: File,
+) {
+  const ext = image.type === "image/png" ? "png" : "jpg";
+  const path = `${userId}/${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("post-images")
+    .upload(path, image, { contentType: image.type, upsert: false });
+
+  if (error) {
+    throw new Error("이미지 업로드에 실패했습니다: " + error.message);
   }
 
-  const supabase = await createClient();
+  const { data } = supabase.storage.from("post-images").getPublicUrl(path);
+  return data.publicUrl;
+}
 
+function validatePost(formData: FormData) {
+  const title = String(formData.get("title") ?? "").trim();
+  const content = String(formData.get("content") ?? "").trim();
+  const errors: PostFormState["errors"] = {};
+
+  if (!title) {
+    errors.title = ["제목을 입력해주세요."];
+  } else if (title.length > 100) {
+    errors.title = ["제목은 100자를 넘을 수 없습니다."];
+  }
+
+  if (!content) {
+    errors.content = ["내용을 입력해주세요."];
+  } else if (content.length > 5000) {
+    errors.content = ["내용은 5000자를 넘을 수 없습니다."];
+  }
+
+  const image = formData.get("image");
+  if (image instanceof File && image.size > 0) {
+    if (!ALLOWED_IMAGE_TYPES.includes(image.type)) {
+      errors.image = ["jpg, png 파일만 첨부할 수 있습니다."];
+    } else if (image.size > MAX_IMAGE_BYTES) {
+      errors.image = ["이미지 용량은 5MB를 넘을 수 없습니다."];
+    }
+  }
+
+  return { title, content, errors };
+}
+
+export async function createPost(
+  prevState: PostFormState,
+  formData: FormData,
+): Promise<PostFormState> {
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { message: "로그인이 필요합니다", values: raw };
+    return { errors: {}, message: "로그인이 필요합니다." };
+  }
+
+  const { title, content, errors } = validatePost(formData);
+  const category = String(formData.get("category") ?? "수업(TIL)");
+  const summary = String(formData.get("summary") ?? "").trim() || null;
+
+  if (Object.keys(errors).length > 0) {
+    return { errors, message: null, values: { title, content } };
+  }
+
+  let image_url: string | null = null;
+  const image = formData.get("image");
+
+  try {
+    if (image instanceof File && image.size > 0) {
+      image_url = await uploadPostImage(supabase, user.id, image);
+    }
+  } catch (e) {
+    return {
+      errors: {},
+      message: e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.",
+      values: { title, content },
+    };
   }
 
   const { data, error } = await supabase
     .from("posts")
-    .insert({ ...parsed.data, user_id: user.id })
+    .insert({ title, content, summary, category, image_url, user_id: user.id })
     .select("id")
     .single();
 
   if (error) {
-    return { message: "저장에 실패했습니다: " + error.message, values: raw };
+    return { errors: {}, message: "글 등록에 실패했습니다: " + error.message, values: { title, content } };
   }
 
   revalidatePath("/posts");
   redirect(`/posts/${data.id}`);
 }
 
-// 4. 게시글 수정하기 (Update)
 export async function updatePost(
-  id: string,
-  _prevState: PostFormState,
+  postId: string,
+  prevState: PostFormState,
   formData: FormData,
 ): Promise<PostFormState> {
-  const raw = readForm(formData);
-  const parsed = PostSchema.safeParse(raw);
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!parsed.success) {
+  if (!user) {
+    return { errors: {}, message: "로그인이 필요합니다." };
+  }
+
+  const { title, content, errors } = validatePost(formData);
+  const category = String(formData.get("category") ?? "수업(TIL)");
+  const summary = String(formData.get("summary") ?? "").trim() || null;
+
+  if (Object.keys(errors).length > 0) {
+    return { errors, message: null, values: { title, content } };
+  }
+
+  const update: Record<string, unknown> = { title, content, summary, category };
+  const image = formData.get("image");
+
+  try {
+    if (image instanceof File && image.size > 0) {
+      update.image_url = await uploadPostImage(supabase, user.id, image);
+    }
+  } catch (e) {
     return {
-      errors: parsed.error.flatten().fieldErrors,
-      message: "입력값을 다시 확인해주세요",
-      values: raw,
+      errors: {},
+      message: e instanceof Error ? e.message : "이미지 업로드에 실패했습니다.",
+      values: { title, content },
     };
   }
 
-  const supabase = await createClient();
-
   const { error } = await supabase
     .from("posts")
-    .update(parsed.data)
-    .eq("id", id);
+    .update(update)
+    .eq("id", postId)
+    .eq("user_id", user.id);
 
   if (error) {
-    return { message: "수정에 실패했습니다: " + error.message, values: raw };
+    return { errors: {}, message: "글 수정에 실패했습니다: " + error.message, values: { title, content } };
   }
 
   revalidatePath("/posts");
-  revalidatePath(`/posts/${id}`);
-  redirect(`/posts/${id}`);
-}
-
-// 5. 게시글 삭제하기 (Delete)
-export async function deletePost(id: string) {
-  const supabase = await createClient();
-
-  const { error } = await supabase.from("posts").delete().eq("id", id);
-
-  if (error) {
-    throw new Error("삭제에 실패했습니다: " + error.message);
-  }
-
-  revalidatePath("/posts");
-  redirect("/posts");
+  revalidatePath(`/posts/${postId}`);
+  redirect(`/posts/${postId}`);
 }

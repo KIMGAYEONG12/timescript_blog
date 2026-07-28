@@ -6,7 +6,8 @@ export async function createClient() {
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!,
     {
       cookies: {
         getAll() {
@@ -18,7 +19,7 @@ export async function createClient() {
               cookieStore.set(name, value, options),
             );
           } catch {
-            // 서버 컴포넌트에서 호출될 때는 무시해도 됨 (미들웨어가 세션 갱신 처리)
+            // 서버 컴포넌트에서 호출된 경우 무시 (미들웨어가 세션 갱신을 처리)
           }
         },
       },

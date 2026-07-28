@@ -1,18 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
-import { PostFormState } from "../actions";
+import Image from "next/image";
+import { useActionState, useState } from "react";
+import { useFormStatus } from "react-dom";
+import { PostFormState } from "./actions";
 
 const FIELD_CLASS =
   "w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50";
 
-const CATEGORIES = ["삽질기록", "오늘배운것", "프로젝트"];
+const CATEGORIES = ["수업(TIL)", "오늘배운것", "리뷰"];
 
 type PostFormAction = (
   prevState: PostFormState,
   formData: FormData,
 ) => Promise<PostFormState>;
+
+function SubmitButton({ label }: { label: string }) {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {pending ? "저장 중..." : label}
+    </button>
+  );
+}
 
 export function PostForm({
   defaultValues,
@@ -25,6 +41,7 @@ export function PostForm({
     content: string;
     summary?: string;
     category?: string;
+    imageUrl?: string;
   };
   submitLabel: string;
   cancelHref: string;
@@ -34,6 +51,19 @@ export function PostForm({
     errors: {},
     message: null,
   });
+  const [preview, setPreview] = useState<string | null>(
+    defaultValues?.imageUrl ?? null,
+  );
+
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setPreview(defaultValues?.imageUrl ?? null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+  }
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -108,13 +138,39 @@ export function PostForm({
         )}
       </div>
 
+      <div className="flex flex-col gap-2">
+        <label htmlFor="image" className="text-sm font-medium">
+          이미지 첨부
+        </label>
+        <input
+          id="image"
+          type="file"
+          name="image"
+          accept="image/png, image/jpeg"
+          onChange={handleImageChange}
+          className="text-sm file:mr-3 file:rounded-md file:border-0 file:bg-black/5 file:px-3 file:py-2 file:text-sm file:font-medium hover:file:bg-black/10 dark:file:bg-white/10 dark:hover:file:bg-white/15"
+        />
+        <p className="text-xs text-black/50 dark:text-white/50">
+          jpg, png 파일만 첨부 가능 (최대 5MB)
+        </p>
+        {state.errors?.image && (
+          <p className="text-xs text-red-500">{state.errors.image[0]}</p>
+        )}
+        {preview && (
+          <div className="relative mt-2 h-40 w-full overflow-hidden rounded-md border border-black/10 dark:border-white/15">
+            <Image
+              src={preview}
+              alt="첨부 이미지 미리보기"
+              fill
+              className="object-cover"
+              unoptimized
+            />
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90"
-        >
-          {submitLabel}
-        </button>
+        <SubmitButton label={submitLabel} />
         <Link
           href={cancelHref}
           className="text-sm text-black/60 hover:text-black dark:text-white/60 dark:hover:text-white"
