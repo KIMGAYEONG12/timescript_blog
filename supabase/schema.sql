@@ -34,3 +34,35 @@ create policy "작성자만 삭제 가능"
 
 alter table posts add column if not exists summary text;
 alter table posts add column if not exists category text;
+
+-- 댓글 테이블
+create table if not exists comments (
+  id bigint generated always as identity primary key,
+  post_id bigint not null references posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id),
+  content text not null,
+  created_at timestamp with time zone default now()
+);
+
+-- RLS(Row Level Security) 활성화
+alter table comments enable row level security;
+
+-- 모든 사람이 댓글 조회 가능
+create policy "누구나 댓글 조회 가능"
+  on comments for select
+  using (true);
+
+-- 로그인한 사용자만 댓글 작성 가능
+create policy "로그인 사용자만 댓글 작성 가능"
+  on comments for insert
+  with check (auth.uid() = user_id);
+
+-- 작성자 본인만 댓글 수정 가능
+create policy "작성자만 댓글 수정 가능"
+  on comments for update
+  using (auth.uid() = user_id);
+
+-- 작성자 본인만 댓글 삭제 가능
+create policy "작성자만 댓글 삭제 가능"
+  on comments for delete
+  using (auth.uid() = user_id);

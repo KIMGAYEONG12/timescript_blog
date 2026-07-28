@@ -7,7 +7,7 @@ import { PostFormState } from "../actions";
 const FIELD_CLASS =
   "w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50";
 
-const CATEGORIES = ["삽질기록", "오늘배운것", "프로젝트"];
+const CATEGORIES = ["오늘배운것", "회고", "프로젝트", "개념정리"];
 
 type PostFormAction = (
   prevState: PostFormState,
@@ -37,9 +37,7 @@ export function PostForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
-      {state.message && (
-        <p className="text-sm text-red-500">{state.message}</p>
-      )}
+      {state.message && <p className="text-sm text-red-500">{state.message}</p>}
 
       <div className="flex flex-col gap-2">
         <label htmlFor="category" className="text-sm font-medium">
