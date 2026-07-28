@@ -36,9 +36,10 @@ alter table posts add column if not exists summary text;
 alter table posts add column if not exists category text;
 
 -- 댓글 테이블
+-- 주의: posts.id 가 uuid 이므로 post_id 도 uuid 여야 합니다 (기존 bigint 참조는 타입 불일치로 생성이 안 됩니다)
 create table if not exists comments (
   id bigint generated always as identity primary key,
-  post_id bigint not null references posts(id) on delete cascade,
+  post_id uuid not null references posts(id) on delete cascade,
   user_id uuid not null references auth.users(id),
   content text not null,
   created_at timestamp with time zone default now()

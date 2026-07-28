@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { deletePost } from "@/app/posts/actions";
+import { CommentSection } from "@/app/posts/_components/comment-section";
 
 export default async function PostDetailPage({
   params,
@@ -26,6 +27,13 @@ export default async function PostDetailPage({
   } = await supabase.auth.getUser();
 
   const isOwner = user?.id === post.user_id;
+
+  // 댓글 조회
+  const { data: comments } = await supabase
+    .from("comments")
+    .select("id, content, created_at, user_id")
+    .eq("post_id", id)
+    .order("created_at", { ascending: true });
 
   return (
     <div className="flex flex-col gap-6 p-8 max-w-2xl mx-auto">
@@ -68,6 +76,12 @@ export default async function PostDetailPage({
           </>
         )}
       </div>
+
+      <CommentSection
+        postId={post.id}
+        comments={comments ?? []}
+        currentUserId={user?.id}
+      />
     </div>
   );
 }
